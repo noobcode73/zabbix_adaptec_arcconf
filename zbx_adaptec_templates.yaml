@@ -333,9 +333,9 @@ zabbix_export:
           item_prototypes:
             -
               uuid: cba19efa0063461992edc3f4e0b0e8b6
-              name: 'PD {#DISK_ID} [{#DISK_VENDOR} {#DISK_MODEL}] S.M.A.R.T. warnings'
+              name: 'PD BASKET: {#DISK_BASKET} [{#DISK_VENDOR} {#DISK_MODEL}] S.M.A.R.T. warnings'
               type: DEPENDENT
-              key: 'raid.disk.smart[{#DISK_ID}]'
+              key: 'raid.disk.smart[{#DISK_SN}]'
               delay: '0'
               history: 7d
               trends: 30d
@@ -344,11 +344,13 @@ zabbix_export:
                 size: {#DISK_SIZE}
                 speed: {#DISK_SPEED}
                 is ssd: {#DISK_SSD}
+                sn: {#DISK_SN}
+                attached_phy_identifier: {#DISK_BASKET}
               preprocessing:
                 -
                   type: JSONPATH
                   parameters:
-                    - '$.[?(@[''id'']=="{#DISK_ID}")][''smart_warnings'']'
+                    - '$.[?(@[''serial_number'']=="{#DISK_SN}")][''smart_warnings'']'
                 -
                   type: JSONPATH
                   parameters:
@@ -362,8 +364,8 @@ zabbix_export:
               trigger_prototypes:
                 -
                   uuid: 97e9095938184307a9ca59c4a2ed2ab9
-                  expression: 'last(/Template App Adaptec Raid JSON/raid.disk.smart[{#DISK_ID}])>1'
-                  name: 'PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} has S.M.A.R.T. warnings on {HOST.NAME}'
+                  expression: 'last(/Template App Adaptec Raid JSON/raid.disk.smart[{#DISK_SN}])>1'
+                  name: 'PD BASKET: {#DISK_BASKET} {#DISK_VENDOR} {#DISK_MODEL} has S.M.A.R.T. warnings on {HOST.NAME}'
                   priority: AVERAGE
                   manual_close: 'YES'
                   tags:
@@ -372,7 +374,7 @@ zabbix_export:
                       value: error
             -
               uuid: 65b336321d474687b1ed075e56433595
-              name: 'PD {#DISK_ID} [{#DISK_VENDOR} {#DISK_MODEL}] state'
+              name: 'PD BASKET: {#DISK_BASKET} [{#DISK_VENDOR} {#DISK_MODEL}] state'
               type: DEPENDENT
               key: 'raid.disk.state[{#DISK_ID}]'
               delay: '0'
@@ -384,11 +386,13 @@ zabbix_export:
                 size: {#DISK_SIZE}
                 speed: {#DISK_SPEED}
                 is ssd: {#DISK_SSD}
+                sn: {#DISK_SN}
+                attached_phy_identifier: {#DISK_BASKET}
               preprocessing:
                 -
                   type: JSONPATH
                   parameters:
-                    - '$.[?(@[''id'']=="{#DISK_ID}")][''state'']'
+                    - '$.[?(@[''serial_number'']=="{#DISK_SN}")][''state'']'
                 -
                   type: JSONPATH
                   parameters:
@@ -403,7 +407,7 @@ zabbix_export:
                 -
                   uuid: 0dd659729b7b41d099858237d5635434
                   expression: 'nodata(/Template App Adaptec Raid JSON/raid.disk.state[{#DISK_ID}],20m)=1'
-                  name: 'No data from PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} on {HOST.NAME}'
+                  name: 'No data from PD BASKET: {#DISK_BASKET} {#DISK_VENDOR} {#DISK_MODEL} on {HOST.NAME}'
                   priority: HIGH
                   manual_close: 'YES'
                   tags:
@@ -415,7 +419,7 @@ zabbix_export:
                   expression: 'find(/Template App Adaptec Raid JSON/raid.disk.state[{#DISK_ID}],,"like","Online")=0'
                   recovery_mode: RECOVERY_EXPRESSION
                   recovery_expression: 'find(/Template App Adaptec Raid JSON/raid.disk.state[{#DISK_ID}],,"like","Online")=1'
-                  name: 'PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} state is not Online on {HOST.NAME}'
+                  name: 'PD BASKET: {#DISK_BASKET} {#DISK_VENDOR} {#DISK_MODEL} state is not Online on {HOST.NAME}'
                   priority: HIGH
                   manual_close: 'YES'
                   tags:
@@ -425,6 +429,9 @@ zabbix_export:
           master_item:
             key: 'raid.arcconfjs[1,pd]'
           lld_macro_paths:
+            - 
+              lld_macro: '{#DISK_BASKET}'
+              path: '$["Phy_#0"].attached_phy_identifier'
             -
               lld_macro: '{#DISK_ID}'
               path: $.id
@@ -437,6 +444,9 @@ zabbix_export:
             -
               lld_macro: '{#DISK_SIZE}'
               path: $.total_size
+            - 
+              lld_macro: '{#DISK_SN}'
+              path: $.serial_number
             -
               lld_macro: '{#DISK_SPEED}'
               path: $.transfer_speed
