@@ -1,0 +1,449 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: ec0563eaed844e189462d7f7c1594ca0
+      template: 'Adaptec Raid JSON'
+      name: 'Adaptec Raid JSON'
+      description: |
+        переводит в json не все. но базовые моменты есть.
+        также сделан под один контроллер только.
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 7543dda63d2b422d83d50235d3f2dd59
+          name: 'RAID adapter (controller only 1)'
+          key: 'raid.arcconfjs[1,ad]'
+          delay: 1h
+          history: 30d
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  function parseCmdAD(lines) {
+                    currentCTRL = {"id": 0};
+                    for (i = 0; i < lines.length - 1; i++) {
+                      line = lines[i].trim()
+                      if (line === "") break
+                      
+                      if (line.includes(":") === false){
+                          if (line.startsWith("Logical Device number"))
+                              currentCTRL["id"] = Number(line.split("number")[1])
+                          continue
+                      }
+                      const keyValue = line.split(":").map(function(s) { return s.trim(); });
+                      key = keyValue[0].replace(/[\s\/]/g,'_').replace(/[\(\)]/g,'').toLowerCase()
+                      currentCTRL[key] = keyValue[1]
+                    }
+                    return currentCTRL 
+                  }
+                  
+                  const lines = value.split("\n");
+                  const rawData = lines.slice(4, -1);
+                  
+                  return JSON.stringify([parseCmdAD(rawData)]);
+          tags:
+            - tag: raid
+              value: ctrl
+        - uuid: 446454c886b34b79975954d52f091c27
+          name: 'RAID logical (virtual) disks'
+          key: 'raid.arcconfjs[1,ld]'
+          delay: 45m
+          history: 30d
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  function parseCmdLD(lines) {
+                    const volumes = [];
+                    currentVolume = {};
+                    currentHeader = ""
+                    for (i = 0; i < lines.length - 1; i++) {
+                      line = lines[i].trim()
+                      
+                      if (line === "") {
+                        if (Object.keys(currentVolume).length > 0) {
+                          volumes.push(currentVolume);
+                          currentVolume = {};
+                          currentHeader = ""
+                        }
+                        continue;
+                      }
+                      
+                      if (line.includes(":") === false){
+                          if (line.startsWith("Logical Device number")){
+                              currentVolume["id"] = Number(line.split("number")[1])
+                          }else if (line.includes("#")) {
+                              currentHeader = line.replace(/\s/g,'_')
+                              currentVolume[currentHeader] = {}
+                          }else
+                              currentHeader = ""
+                          continue
+                      }
+                  
+                      const keyValue = line.split(":").map(function(s) { return s.trim(); });
+                      key = keyValue[0]
+                      value = keyValue[1]
+                      if (keyValue.length > 2){
+                          key = keyValue[0]
+                          value = keyValue.slice(1).join(":")
+                      }
+                      key = key.replace(/\s/g,'_').replace(/\./g,'').toLowerCase()
+                  
+                      if(currentHeader === "")
+                          currentVolume[key] = value
+                      else
+                          currentVolume[currentHeader][key] = value;
+                    }
+                  
+                    return volumes
+                  }
+                  
+                  const lines = value.split("\n");
+                  const rawData = lines.slice(4, -1);
+                  
+                  return JSON.stringify(parseCmdLD(rawData));
+          tags:
+            - tag: raid
+              value: volumes
+        - uuid: f8adcaa79f004f4fa3fc2b1696a60c78
+          name: 'RAID physical disks'
+          key: 'raid.arcconfjs[1,pd]'
+          delay: 10m
+          history: 30d
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  function parseCmdPD(lines) {
+                    const volumes = [];
+                    currentVolume = {};
+                    currentHeader = ""
+                    for (i = 0; i < lines.length - 1; i++) {
+                      line = lines[i].trim()
+                      
+                      if (line === "") {
+                        if (Object.keys(currentVolume).length > 0) {
+                          volumes.push(currentVolume);
+                          currentVolume = {};
+                          currentHeader = ""
+                        }
+                        continue;
+                      }
+                      
+                      if (line.includes(":") === false){
+                          if (line.startsWith("Device #")){
+                              currentVolume["id"] = line.split("#")[1]
+                          }else if (line.includes("#")) {
+                              currentHeader = line.replace(/\s/g,'_')
+                              currentVolume[currentHeader] = {}
+                          }else
+                              currentHeader = ""
+                          continue
+                      }
+                  
+                      const keyValue = line.split(":").map(function(s) { return s.trim(); });
+                      key = keyValue[0]
+                      value = keyValue[1]
+                      if (keyValue.length > 2){
+                          key = keyValue.slice(0, 2).join(":")
+                          value = keyValue.slice(2).join(":")
+                      }
+                      key = key.replace(/\s/g,'_').replace(/\./g,'').toLowerCase()
+                  
+                      if(currentHeader === "")
+                          currentVolume[key] = value
+                      else
+                          currentVolume[currentHeader][key] = value;
+                    }
+                  
+                    return volumes
+                  }
+                  
+                  
+                  const lines = value.split("\n");
+                  const rawData = lines.slice(4, -1);
+                  
+                  return JSON.stringify(parseCmdPD(rawData));
+          tags:
+            - tag: raid
+              value: disks
+      discovery_rules:
+        - uuid: af12fdb4a04346bcbd220fa3e8ee116b
+          name: 'RAID adapters (controllers)'
+          type: DEPENDENT
+          key: raid.ctrl.full
+          delay: '0'
+          enabled_lifetime_type: DISABLE_NEVER
+          item_prototypes:
+            - uuid: 7b9cf38013204734967d81021b04f78e
+              name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} status'
+              type: DEPENDENT
+              key: 'raid.ctrl.status[{#CTRL_SN}]'
+              delay: '0'
+              history: 30d
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''id'']=="{#CTRL_ID}")][''controller_status'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+              master_item:
+                key: 'raid.arcconfjs[1,ad]'
+              tags:
+                - tag: raid.ctrl
+                  value: status
+              trigger_prototypes:
+                - uuid: 82adda8c8cef4a85889e418be58ec7e7
+                  expression: 'find(/Adaptec Raid JSON/raid.ctrl.status[{#CTRL_SN}],,"like","Optimal")=0'
+                  name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} status is not Optimal on {HOST.NAME}'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.ctrl
+                      value: status
+            - uuid: a35552cf258240f9be75923189dcb74a
+              name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} temperature C'
+              type: DEPENDENT
+              key: 'raid.ctrl.temperature.c[{#CTRL_SN}]'
+              delay: '0'
+              history: 30d
+              trends: 30d
+              units: C
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''id'']=="{#CTRL_ID}")][''temperature'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'return parseInt(value.split(" ")[0])'
+              master_item:
+                key: 'raid.arcconfjs[1,ad]'
+              tags:
+                - tag: raid.ctrl
+                  value: temperature
+              trigger_prototypes:
+                - uuid: fc75318645c1483e9a4a741ea322adc2
+                  expression: 'last(/Adaptec Raid JSON/raid.ctrl.temperature.c[{#CTRL_SN}])>60'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'last(/Adaptec Raid JSON/raid.ctrl.temperature.c[{#CTRL_SN}])<60'
+                  name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} temperature > 60C on {HOST.NAME}'
+                  priority: WARNING
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.ctrl
+                      value: temperature.C
+            - uuid: 2af84463f1ac4a069c95b0595ab05cfe
+              name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} temperature'
+              type: DEPENDENT
+              key: 'raid.ctrl.temperature[{#CTRL_SN}]'
+              delay: '0'
+              history: 30d
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''id'']=="{#CTRL_ID}")][''temperature'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+              master_item:
+                key: 'raid.arcconfjs[1,ad]'
+              tags:
+                - tag: raid.ctrl
+                  value: temperature
+              trigger_prototypes:
+                - uuid: 85133ca60d164052aaa0378582524036
+                  expression: 'find(/Adaptec Raid JSON/raid.ctrl.temperature[{#CTRL_SN}],,"like","Normal")=0'
+                  name: 'Controller {#CTRL_MODEL} {#CTRL_MODE} temperature is not Normal on {HOST.NAME}'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.ctrl
+                      value: temperature
+          master_item:
+            key: 'raid.arcconfjs[1,ad]'
+          lld_macro_paths:
+            - lld_macro: '{#CTRL_ID}'
+              path: $.id
+            - lld_macro: '{#CTRL_MODEL}'
+              path: $.controller_model
+            - lld_macro: '{#CTRL_MODE}'
+              path: $.controller_mode
+            - lld_macro: '{#CTRL_SN}'
+              path: $.controller_serial_number
+        - uuid: bfa7e492db21421e982d62d58fa547ba
+          name: 'RAID physical disks'
+          type: DEPENDENT
+          key: raid.disk.all
+          delay: '0'
+          lifetime: 30d
+          enabled_lifetime_type: DISABLE_NEVER
+          item_prototypes:
+            - uuid: cba19efa0063461992edc3f4e0b0e8b6
+              name: 'PD BASKET: {#DISK_BASKET} [{#DISK_VENDOR} {#DISK_MODEL}] S.M.A.R.T. warnings'
+              type: DEPENDENT
+              key: 'raid.disk.smart[{#DISK_SN}]'
+              delay: '0'
+              history: 7d
+              trends: 30d
+              description: |
+                locate: {#DISK_LOCATE}
+                size: {#DISK_SIZE}
+                speed: {#DISK_SPEED}
+                is ssd: {#DISK_SSD}
+                sn: {#DISK_SN}
+                attached_phy_identifier: {#DISK_BASKET}
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''serial_number'']=="{#DISK_SN}")][''smart_warnings'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+              master_item:
+                key: 'raid.arcconfjs[1,pd]'
+              tags:
+                - tag: raid.disks
+                  value: smart
+              trigger_prototypes:
+                - uuid: 97e9095938184307a9ca59c4a2ed2ab9
+                  expression: 'last(/Adaptec Raid JSON/raid.disk.smart[{#DISK_SN}])>1'
+                  name: 'PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} has S.M.A.R.T. warnings on {HOST.NAME}'
+                  priority: AVERAGE
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.disks.smart
+                      value: error
+            - uuid: 65b336321d474687b1ed075e56433595
+              name: 'PD BASKET: {#DISK_BASKET} [{#DISK_VENDOR} {#DISK_MODEL}] state'
+              type: DEPENDENT
+              key: 'raid.disk.state[{#DISK_SN}]'
+              delay: '0'
+              history: 30d
+              value_type: TEXT
+              trends: '0'
+              description: |
+                locate: {#DISK_LOCATE}
+                size: {#DISK_SIZE}
+                speed: {#DISK_SPEED}
+                is ssd: {#DISK_SSD}
+                sn: {#DISK_SN}
+                attached_phy_identifier: {#DISK_BASKET}
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''serial_number'']=="{#DISK_SN}")][''state'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+              master_item:
+                key: 'raid.arcconfjs[1,pd]'
+              tags:
+                - tag: raid.disks
+                  value: status
+              trigger_prototypes:
+                - uuid: 0dd659729b7b41d099858237d5635434
+                  expression: 'nodata(/Adaptec Raid JSON/raid.disk.state[{#DISK_SN}],20m)=1'
+                  name: 'No data from PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} on {HOST.NAME}'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.disks
+                      value: nodata
+                - uuid: 42f3477ea9ed47829c4a2ec28f38edec
+                  expression: 'find(/Adaptec Raid JSON/raid.disk.state[{#DISK_SN}],,"like","Online")=0'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'find(/Adaptec Raid JSON/raid.disk.state[{#DISK_SN}],,"like","Online")=1'
+                  name: 'PD {#DISK_ID} {#DISK_VENDOR} {#DISK_MODEL} state is not Online on {HOST.NAME}'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.disks
+                      value: faild
+          master_item:
+            key: 'raid.arcconfjs[1,pd]'
+          lld_macro_paths:
+            - lld_macro: '{#DISK_BASKET}'
+              path: '$["Phy_#0"].attached_phy_identifier'
+            - lld_macro: '{#DISK_ID}'
+              path: $.id
+            - lld_macro: '{#DISK_LOCATE}'
+              path: $.reported_location
+            - lld_macro: '{#DISK_MODEL}'
+              path: $.model
+            - lld_macro: '{#DISK_SIZE}'
+              path: $.total_size
+            - lld_macro: '{#DISK_SN}'
+              path: $.serial_number
+            - lld_macro: '{#DISK_SPEED}'
+              path: $.transfer_speed
+            - lld_macro: '{#DISK_SSD}'
+              path: $.ssd
+            - lld_macro: '{#DISK_VENDOR}'
+              path: $.vendor
+        - uuid: 7e05f24509ff41c18f793c04c96cc68a
+          name: 'RAID logical (virtual) disks'
+          type: DEPENDENT
+          key: raid.volumes.all
+          delay: '0'
+          enabled_lifetime_type: DISABLE_NEVER
+          item_prototypes:
+            - uuid: bb5c3b9a744c42b8a299f4591e647347
+              name: 'Logical device "{#VOLUME_NAME}" id {#VOLUME_ID} status'
+              type: DEPENDENT
+              key: 'raid.volume.status[{#VOLUME_ID}]'
+              delay: '0'
+              history: 30d
+              value_type: TEXT
+              trends: '0'
+              description: |
+                raid level: {#VOLUME_RAID_LEVEL}
+                volume size: {#VOLUME_SIZE}
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.[?(@[''id'']=="{#VOLUME_ID}")][''status_of_logical_device'']'
+                - type: JSONPATH
+                  parameters:
+                    - '$.[0]'
+              master_item:
+                key: 'raid.arcconfjs[1,ld]'
+              tags:
+                - tag: raid.volumes
+                  value: status
+              trigger_prototypes:
+                - uuid: ee420a1c349945dd9561fd5cb5680cda
+                  expression: 'find(/Adaptec Raid JSON/raid.volume.status[{#VOLUME_ID}],,"like","Optimal")=0'
+                  name: 'LD "{#VOLUME_NAME}" id {#VOLUME_ID} status is not Optimal on {HOST.NAME}'
+                  priority: HIGH
+                  manual_close: 'YES'
+                  tags:
+                    - tag: raid.volumes
+                      value: status
+          master_item:
+            key: 'raid.arcconfjs[1,ld]'
+          lld_macro_paths:
+            - lld_macro: '{#VOLUME_ID}'
+              path: '$.[''id'']'
+            - lld_macro: '{#VOLUME_NAME}'
+              path: '$.[''logical_device_name'']'
+            - lld_macro: '{#VOLUME_RAID_LEVEL}'
+              path: '$.[''raid_level'']'
+            - lld_macro: '{#VOLUME_SIZE}'
+              path: '$.[''size'']'
